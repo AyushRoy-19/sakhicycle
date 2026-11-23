@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sakhicycle",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-01-01",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sakhicycle-db",
+      "database_id": "4c1d2a6e-7b18-4f92-9f3a-2d5e8b0c7a41"
+    }
+  ],
+  "vars": {
+    "APP_NAME": "Sakhicycle"
+  }
+}
