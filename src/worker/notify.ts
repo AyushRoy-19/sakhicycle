@@ -1,61 +1,40 @@
 import type { Context } from 'hono'
 import type { PublicUser } from '../shared/types'
 import type { AppEnv, Env } from './env'
+import { escapeHtml } from './html'
 
 /**
  * Resend's shared sender needs no domain verification; it can only deliver to the
- * address that owns the Resend account, which is exactly the owner-notification case.
+ * inbox that owns the Resend account, which covers owner-only signup alerts.
  */
 const FROM = 'Sakhicycle <onboarding@resend.dev>'
-const DEFAULT_TO = 'royayush1901@gmail.com'
 
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => {
-    switch (character) {
-      case '&':
-        return '&amp;'
-      case '<':
-        return '&lt;'
-      case '>':
-        return '&gt;'
-      case '"':
-        return '&quot;'
-      default:
-        return '&#39;'
-    }
-  })
-}
-
-/**
- * Emails the owner about a new account. Never throws: a failed alert must not
- * break sign-up, so problems are only logged.
- */
-export async function sendSignupAlert(env: Env, user: PublicUser): Promise<void> {
-  if (!env.RESEND_API_KEY) return
-
-  const to = (env.SIGNUP_ALERT_TO ?? DEFAULT_TO)
+/** Comma-separated SIGNUP_ALERT_TO values, trimmed. Empty when unset. */
+function recipients(value: string | undefined): string[] {
+  return (value ?? '')
     .split(',')
     .map((address) => address.trim())
     .filter(Boolean)
-  if (to.length === 0) return
+}
 
-  const when = new Date(user.createdAt).toUTCString()
+/** Emails the owner about a new account. Never throws: alerts must not break sign-up. */
+async function sendSignupAlert(env: Env, user: PublicUser): Promise<void> {
+  const to = recipients(env.SIGNUP_ALERT_TO)
+  if (!env.RESEND_API_KEY || to.length === 0) return
+
   const method = user.hasPassword ? 'email and password' : 'Google'
   const html = `<div style="font-family:system-ui,sans-serif;color:#2a1219">
   <h2 style="margin:0 0 12px;color:#b4234c">New Sakhicycle signup</h2>
   <p style="margin:0 0 4px"><strong>${escapeHtml(user.name)}</strong></p>
   <p style="margin:0 0 4px">${escapeHtml(user.email)}</p>
-  <p style="margin:0 0 4px;color:#6b4a53">${escapeHtml(when)} (UTC)</p>
-  <p style="margin:0;color:#6b4a53">Signed up with ${escapeHtml(method)}.</p>
+  <p style="margin:0 0 4px;color:#6b4a53">${escapeHtml(new Date(user.createdAt).toUTCString())} (UTC)</p>
+  <p style="margin:0;color:#6b4a53">Signed up with ${method}.</p>
 </div>`
 
   try {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         from: FROM,
         to,
@@ -64,7 +43,8 @@ export async function sendSignupAlert(env: Env, user: PublicUser): Promise<void>
       }),
     })
     if (!response.ok) {
-      console.warn('signup alert rejected:', response.status, (await response.text().catch(() => '')).slice(0, 300))
+      const detail = await response.text().catch(() => '')
+      console.warn('signup alert rejected:', response.status, detail.slice(0, 300))
     }
   } catch (error) {
     console.warn('signup alert failed:', error)

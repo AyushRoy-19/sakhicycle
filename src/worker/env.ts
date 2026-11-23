@@ -9,9 +9,9 @@ export interface Env {
   /** Optional Google OAuth credentials. When absent, Google sign-in stays disabled. */
   GOOGLE_CLIENT_ID?: string
   GOOGLE_CLIENT_SECRET?: string
-  /** Optional Resend key: when set, every new account emails an alert to SIGNUP_ALERT_TO. */
+  /** Optional Resend key. Alerts need both this and SIGNUP_ALERT_TO. */
   RESEND_API_KEY?: string
-  /** Comma-separated owner addresses for signup alerts. */
+  /** Comma-separated owner addresses for signup alerts; no addresses means no alerts. */
   SIGNUP_ALERT_TO?: string
   /** When set, /admin?token=… serves the owner dashboard; without it the page is a 404. */
   ADMIN_TOKEN?: string

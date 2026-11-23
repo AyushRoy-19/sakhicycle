@@ -1,20 +1,32 @@
 import type { Env } from './env'
 import { signupStats } from './db'
+import { escapeHtml } from './html'
 
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => {
-    switch (character) {
-      case '&':
-        return '&amp;'
-      case '<':
-        return '&lt;'
-      case '>':
-        return '&gt;'
-      case '"':
-        return '&quot;'
-      default:
-        return '&#39;'
-    }
+/** Constant-time compare so a wrong token reveals nothing through timing. */
+function tokenMatches(given: string, expected: string): boolean {
+  if (given.length !== expected.length) return false
+  let difference = 0
+  for (let index = 0; index < given.length; index += 1) {
+    difference |= given.charCodeAt(index) ^ expected.charCodeAt(index)
+  }
+  return difference === 0
+}
+
+const PAGE_HEADERS = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'Cache-Control': 'no-store',
+  'Referrer-Policy': 'no-referrer',
+  'X-Robots-Tag': 'noindex, nofollow',
+  'X-Content-Type-Options': 'nosniff',
+  'Content-Security-Policy':
+    "default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'",
+}
+
+// Built per request: constructing a Response at module scope is disallowed in Workers.
+function notFound(): Response {
+  return new Response('Not found', {
+    status: 404,
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
   })
 }
 
@@ -30,10 +42,9 @@ function ago(iso: string): string {
   return days === 1 ? 'yesterday' : `${days} days ago`
 }
 
-function when(iso: string): string {
+function timestamp(iso: string): string {
   const date = new Date(iso)
-  if (!Number.isFinite(date.getTime())) return iso
-  return `${date.toISOString().slice(0, 16).replace('T', ' ')} UTC`
+  return Number.isNaN(date.getTime()) ? iso : `${date.toISOString().slice(0, 16).replace('T', ' ')} UTC`
 }
 
 const PAGE_STYLE = `
@@ -67,18 +78,19 @@ const PAGE_STYLE = `
     border: 1px solid #4a333d; color: #d9b7c1; }
 `
 
-export async function renderAdminPage(env: Env): Promise<string> {
+async function renderPage(env: Env): Promise<string> {
   const stats = await signupStats(env)
   const peak = Math.max(1, ...stats.daily.map((entry) => entry.count))
 
+  // SQL returns the newest 14 days first; reverse so the newest day is on the right.
   const bars = stats.daily
     .slice()
     .reverse()
     .map((entry) => {
-      const height = Math.round((entry.count / peak) * 92)
+      const height = Math.max(entry.count > 0 ? 6 : 2, Math.round((entry.count / peak) * 92))
       const label = entry.day.slice(5).replace('-', '/')
       return `<div class="bar" title="${escapeHtml(entry.day)}: ${entry.count}">
-        <b>${entry.count}</b><i style="height:${Math.max(entry.count > 0 ? 6 : 2, height)}px"></i><small>${escapeHtml(label)}</small>
+        <b>${entry.count}</b><i style="height:${height}px"></i><small>${escapeHtml(label)}</small>
       </div>`
     })
     .join('')
@@ -89,7 +101,7 @@ export async function renderAdminPage(env: Env): Promise<string> {
         <td>${escapeHtml(user.name)}</td>
         <td class="email">${escapeHtml(user.email)}</td>
         <td><span class="tag">${user.method === 'google' ? 'Google' : 'Password'}</span></td>
-        <td class="time">${escapeHtml(ago(user.createdAt))}<br><span class="muted">${escapeHtml(when(user.createdAt))}</span></td>
+        <td class="time">${escapeHtml(ago(user.createdAt))}<br><span class="muted">${escapeHtml(timestamp(user.createdAt))}</span></td>
       </tr>`,
     )
     .join('')
@@ -107,7 +119,7 @@ export async function renderAdminPage(env: Env): Promise<string> {
 <div class="wrap">
   <div class="top">
     <h1>Sa<span>khi</span>cycle <span style="color:#a5858f;font-size:0.9rem;font-weight:400">· owner view</span></h1>
-    <div class="muted">Updated ${escapeHtml(when(new Date().toISOString()))}</div>
+    <div class="muted">Updated ${escapeHtml(timestamp(new Date().toISOString()))}</div>
   </div>
 
   <div class="cards">
@@ -136,4 +148,14 @@ export async function renderAdminPage(env: Env): Promise<string> {
 </div>
 </body>
 </html>`
+}
+
+/**
+ * Secret-link dashboard. Without ADMIN_TOKEN set, or with the wrong token, the
+ * route is indistinguishable from a missing page.
+ */
+export async function handleAdmin(env: Env, given: string): Promise<Response> {
+  const expected = env.ADMIN_TOKEN
+  if (!expected || !given || !tokenMatches(given, expected)) return notFound()
+  return new Response(await renderPage(env), { status: 200, headers: PAGE_HEADERS })
 }

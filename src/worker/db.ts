@@ -153,20 +153,20 @@ export type SignupStats = {
   recent: Array<{ name: string; email: string; createdAt: string; method: 'google' | 'password' }>
 }
 
-function countOf(result: D1Result<unknown> | undefined): number {
-  const row = result?.results?.[0] as { n?: number } | undefined
-  return Number(row?.n ?? 0)
-}
+type CountsRow = { total: number | null; day1: number | null; day7: number | null; day30: number | null }
 
 /** Aggregate signup numbers for the owner dashboard, counted from the users table. */
 export async function signupStats(env: Env): Promise<SignupStats> {
   const since = (days: number) => new Date(Date.now() - days * 24 * 60 * 60_000).toISOString()
 
-  const [total, day1, day7, day30, daily, recent] = await env.DB.batch<unknown>([
-    env.DB.prepare('SELECT COUNT(*) AS n FROM users'),
-    env.DB.prepare('SELECT COUNT(*) AS n FROM users WHERE created_at >= ?1').bind(since(1)),
-    env.DB.prepare('SELECT COUNT(*) AS n FROM users WHERE created_at >= ?1').bind(since(7)),
-    env.DB.prepare('SELECT COUNT(*) AS n FROM users WHERE created_at >= ?1').bind(since(30)),
+  const [counts, daily, recent] = await env.DB.batch<unknown>([
+    env.DB.prepare(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN created_at >= ?1 THEN 1 ELSE 0 END) AS day1,
+              SUM(CASE WHEN created_at >= ?2 THEN 1 ELSE 0 END) AS day7,
+              SUM(CASE WHEN created_at >= ?3 THEN 1 ELSE 0 END) AS day30
+       FROM users`,
+    ).bind(since(1), since(7), since(30)),
     env.DB.prepare(
       `SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n FROM users
        GROUP BY day ORDER BY day DESC LIMIT 14`,
@@ -176,6 +176,7 @@ export async function signupStats(env: Env): Promise<SignupStats> {
     ),
   ])
 
+  const countRow = (counts?.results?.[0] ?? {}) as CountsRow
   const dailyRows = (daily?.results ?? []) as Array<{ day: string; n: number }>
   const recentRows = (recent?.results ?? []) as Array<{
     name: string
@@ -185,10 +186,10 @@ export async function signupStats(env: Env): Promise<SignupStats> {
   }>
 
   return {
-    total: countOf(total),
-    last24h: countOf(day1),
-    last7d: countOf(day7),
-    last30d: countOf(day30),
+    total: Number(countRow.total ?? 0),
+    last24h: Number(countRow.day1 ?? 0),
+    last7d: Number(countRow.day7 ?? 0),
+    last30d: Number(countRow.day30 ?? 0),
     daily: dailyRows.map((row) => ({ day: String(row.day), count: Number(row.n) })),
     recent: recentRows.map((row) => ({
       name: String(row.name),
