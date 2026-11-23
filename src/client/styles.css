@@ -1703,6 +1703,7 @@ textarea.input {
 .theme-toggle {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
   padding: 8px 12px;
   border-radius: 999px;
@@ -1710,9 +1711,14 @@ textarea.input {
   background: transparent;
   font-size: 0.83rem;
   color: var(--ink-2);
+  flex: none;
   transition:
     border-color 0.16s ease,
     color 0.16s ease;
+}
+
+.theme-toggle svg {
+  flex: none;
 }
 
 .theme-toggle:hover {
@@ -1839,8 +1845,11 @@ textarea.input {
     display: none;
   }
 
-  .theme-toggle {
-    padding: 8px 10px;
+  .theme-toggle,
+  .app-user .theme-toggle {
+    width: 34px;
+    height: 34px;
+    padding: 0;
   }
 
   .chat-wrap {
@@ -1877,8 +1886,11 @@ textarea.input {
     font-size: 0.8rem;
   }
 
-  .nav .theme-toggle {
-    padding: 7px 9px;
+  /* On phones the header can only hold the logo and the two account buttons. */
+  .theme-toggle,
+  .nav .theme-toggle,
+  .app-user .theme-toggle {
+    display: none;
   }
 
   .brand {
