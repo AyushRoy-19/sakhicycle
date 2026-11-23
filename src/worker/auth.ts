@@ -198,12 +198,20 @@ export async function exchangeGoogleCode(env: Env, origin: string, code: string)
   try {
     const json = atob(part.replace(/-/g, '+').replace(/_/g, '/'))
     const claims = JSON.parse(json) as {
+      iss?: string
+      aud?: string
+      exp?: number
       sub?: string
       email?: string
       email_verified?: boolean
       name?: string
       given_name?: string
     }
+    // The token comes straight from Google's token endpoint, but still check who
+    // issued it and that it was minted for this client and has not expired.
+    const issuer = claims.iss === 'accounts.google.com' || claims.iss === 'https://accounts.google.com'
+    if (!issuer || claims.aud !== env.GOOGLE_CLIENT_ID) return null
+    if (typeof claims.exp !== 'number' || claims.exp * 1000 <= Date.now()) return null
     if (!claims.sub || !claims.email || claims.email_verified === false) return null
     const name = (claims.given_name || claims.name || claims.email.split('@')[0] || 'Friend').slice(0, 60)
     return { sub: claims.sub, email: claims.email, name }
