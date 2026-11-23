@@ -9,3 +9,5 @@ sites-build/
 !.env.example
 *.log
 .DS_Store
+.admin-token.tmp
+admin-link.txt

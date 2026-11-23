@@ -51,6 +51,8 @@ import {
   verifyPassword,
 } from './auth'
 import { computeInsights, isIsoDate, toIsoDate } from './insights'
+import { renderAdminPage } from './admin'
+import { queueSignupAlert } from './notify'
 import { replyTo } from './chat'
 import { articles, findArticle } from './content'
 import type { CycleSettings, DayLog, Flow } from '../shared/types'
@@ -174,6 +176,7 @@ app.post('/api/auth/signup', async (c) => {
   }
 
   const user = await createUser(c.env, { email, name, passwordHash: await hashPassword(password) })
+  queueSignupAlert(c, user)
   await issueSession(c, c.env, user.id)
   await adoptGuestConversation(c, user.id)
   return c.json({ user }, 201)
@@ -290,6 +293,7 @@ app.get('/api/auth/google/callback', async (c) => {
     name: identity.name,
     googleSub: identity.sub,
   })
+  queueSignupAlert(c, user)
   await issueSession(c, c.env, user.id)
   await adoptGuestConversation(c, user.id)
   return c.redirect('/app')
@@ -533,6 +537,37 @@ app.delete('/api/guest/chat', async (c) => {
 /* --------------------------------------- errors ------------------------------------ */
 
 app.all('/api/*', (c) => c.json({ error: 'That endpoint does not exist.' }, 404))
+
+/* ------------------------------ owner dashboard ------------------------------ */
+
+function tokenMatches(given: string, expected: string): boolean {
+  if (given.length !== expected.length) return false
+  let difference = 0
+  for (let index = 0; index < given.length; index += 1) {
+    difference |= given.charCodeAt(index) ^ expected.charCodeAt(index)
+  }
+  return difference === 0
+}
+
+const ADMIN_HEADERS = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'Cache-Control': 'no-store',
+  'Referrer-Policy': 'no-referrer',
+  'X-Robots-Tag': 'noindex, nofollow',
+  'X-Content-Type-Options': 'nosniff',
+  'Content-Security-Policy':
+    "default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'",
+}
+
+// Secret-link dashboard. Without ADMIN_TOKEN set, or with the wrong token, it is a plain 404.
+app.get('/admin', async (c) => {
+  const expected = c.env.ADMIN_TOKEN
+  const given = c.req.query('token') ?? c.req.header('x-admin-token') ?? ''
+  if (!expected || !given || !tokenMatches(given, expected)) {
+    return new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
+  }
+  return new Response(await renderAdminPage(c.env), { status: 200, headers: ADMIN_HEADERS })
+})
 
 app.onError((error, c) => {
   console.error('Unhandled worker error:', error)

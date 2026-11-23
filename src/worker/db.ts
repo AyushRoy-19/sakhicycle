@@ -144,6 +144,61 @@ export async function updateUserName(env: Env, userId: string, name: string) {
   await env.DB.prepare('UPDATE users SET name = ?1 WHERE id = ?2').bind(name, userId).run()
 }
 
+export type SignupStats = {
+  total: number
+  last24h: number
+  last7d: number
+  last30d: number
+  daily: Array<{ day: string; count: number }>
+  recent: Array<{ name: string; email: string; createdAt: string; method: 'google' | 'password' }>
+}
+
+function countOf(result: D1Result<unknown> | undefined): number {
+  const row = result?.results?.[0] as { n?: number } | undefined
+  return Number(row?.n ?? 0)
+}
+
+/** Aggregate signup numbers for the owner dashboard, counted from the users table. */
+export async function signupStats(env: Env): Promise<SignupStats> {
+  const since = (days: number) => new Date(Date.now() - days * 24 * 60 * 60_000).toISOString()
+
+  const [total, day1, day7, day30, daily, recent] = await env.DB.batch<unknown>([
+    env.DB.prepare('SELECT COUNT(*) AS n FROM users'),
+    env.DB.prepare('SELECT COUNT(*) AS n FROM users WHERE created_at >= ?1').bind(since(1)),
+    env.DB.prepare('SELECT COUNT(*) AS n FROM users WHERE created_at >= ?1').bind(since(7)),
+    env.DB.prepare('SELECT COUNT(*) AS n FROM users WHERE created_at >= ?1').bind(since(30)),
+    env.DB.prepare(
+      `SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n FROM users
+       GROUP BY day ORDER BY day DESC LIMIT 14`,
+    ),
+    env.DB.prepare(
+      `SELECT name, email, created_at, google_sub FROM users ORDER BY created_at DESC LIMIT 50`,
+    ),
+  ])
+
+  const dailyRows = (daily?.results ?? []) as Array<{ day: string; n: number }>
+  const recentRows = (recent?.results ?? []) as Array<{
+    name: string
+    email: string
+    created_at: string
+    google_sub: string | null
+  }>
+
+  return {
+    total: countOf(total),
+    last24h: countOf(day1),
+    last7d: countOf(day7),
+    last30d: countOf(day30),
+    daily: dailyRows.map((row) => ({ day: String(row.day), count: Number(row.n) })),
+    recent: recentRows.map((row) => ({
+      name: String(row.name),
+      email: String(row.email),
+      createdAt: String(row.created_at),
+      method: row.google_sub ? 'google' : 'password',
+    })),
+  }
+}
+
 export { toPublicUser }
 
 /* ---------------------------------- sessions --------------------------------- */
