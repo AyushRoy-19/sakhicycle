@@ -7,6 +7,13 @@ sites-build/
 .env
 .env.*
 !.env.example
+.secrets/
+# Key material must never reach a public repo, whatever it is named.
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
 *.log
 .DS_Store
 .admin-token.tmp

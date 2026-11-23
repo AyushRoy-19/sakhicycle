@@ -59,6 +59,12 @@ CREATE TABLE IF NOT EXISTS guest_chats (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS guest_chats_by_guest ON guest_chats (guest_id, created_at);
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key TEXT PRIMARY KEY,
+  count INTEGER NOT NULL,
+  reset_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS rate_limits_reset ON rate_limits (reset_at);
 `
 
 let schemaPromise: Promise<void> | null = null
@@ -205,9 +211,16 @@ export { toPublicUser }
 /* ---------------------------------- sessions --------------------------------- */
 
 export async function insertSession(env: Env, id: string, userId: string, expiresAt: string) {
-  await env.DB.prepare('INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?1, ?2, ?3, ?4)')
-    .bind(id, userId, new Date().toISOString(), expiresAt)
-    .run()
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?1, ?2, ?3, ?4)')
+      .bind(id, userId, new Date().toISOString(), expiresAt),
+    // Cap live sessions per account so a stolen cookie cannot accumulate forever
+    // and every device list stays bounded.
+    env.DB.prepare(
+      `DELETE FROM sessions WHERE user_id = ?1 AND id NOT IN (
+         SELECT id FROM sessions WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 10)`,
+    ).bind(userId),
+  ])
 }
 
 export async function findSessionUser(env: Env, sessionId: string) {
@@ -218,6 +231,39 @@ export async function findSessionUser(env: Env, sessionId: string) {
     .bind(sessionId, new Date().toISOString())
     .first<UserRow>()
   return row ? toPublicUser(row) : null
+}
+
+/**
+ * Counts one hit for `key` and reports whether that bucket is now over `limit`.
+ * Counters live in D1, so a limit holds across isolates instead of resetting on
+ * every cold start. Returns false on storage errors: the caller also runs an
+ * in-memory burst limiter, and failing closed here would take sign-in offline.
+ */
+export async function hitRateLimit(env: Env, key: string, limit: number, windowMs: number): Promise<boolean> {
+  const now = new Date()
+  try {
+    const row = await env.DB.prepare(
+      `INSERT INTO rate_limits (key, count, reset_at) VALUES (?1, 1, ?2)
+       ON CONFLICT (key) DO UPDATE SET
+         count = CASE WHEN rate_limits.reset_at <= ?3 THEN 1 ELSE rate_limits.count + 1 END,
+         reset_at = CASE WHEN rate_limits.reset_at <= ?3 THEN ?2 ELSE rate_limits.reset_at END
+       RETURNING count`,
+    )
+      .bind(key, new Date(now.getTime() + windowMs).toISOString(), now.toISOString())
+      .first<{ count: number }>()
+    return (row?.count ?? 1) > limit
+  } catch {
+    return false
+  }
+}
+
+/** Drops expired counters so the table cannot grow without bound. */
+export async function pruneRateLimits(env: Env): Promise<void> {
+  try {
+    await env.DB.prepare('DELETE FROM rate_limits WHERE reset_at <= ?1').bind(new Date().toISOString()).run()
+  } catch {
+    /* best effort: stale counters only cost a row until the next prune */
+  }
 }
 
 export async function deleteSession(env: Env, sessionId: string) {

@@ -18,12 +18,14 @@ import {
   findUserByGoogleSub,
   getGuest,
   getPrefs,
+  hitRateLimit,
   insertChat,
   insertGuestChat,
   listChats,
   listDays,
   listGuestChats,
   pruneGuests,
+  pruneRateLimits,
   savePrefs,
   toPublicUser,
   updateUserName,
@@ -48,6 +50,7 @@ import {
   newToken,
   readGuestToken,
   resolveSessionUser,
+  timingSafeEqual,
   verifyPassword,
 } from './auth'
 import { computeInsights, isIsoDate, toIsoDate } from './insights'
@@ -66,6 +69,15 @@ const FLOWS: Flow[] = ['light', 'medium', 'heavy']
 
 app.use('/api/*', async (c, next) => {
   await ensureSchema(c.env)
+  // Housekeeping: expired counters cost a row each until they are pruned.
+  if (Math.random() < 0.02) {
+    const cleanup = pruneRateLimits(c.env)
+    try {
+      c.executionCtx.waitUntil(cleanup)
+    } catch {
+      void cleanup
+    }
+  }
   // These routes end the session, so there is no cookie worth upgrading.
   const endsSession = c.req.path === '/api/auth/logout' || c.req.path === '/api/auth/account'
   c.set('user', await resolveSessionUser(c, c.env, { migrate: !endsSession }))
@@ -97,14 +109,28 @@ const CSP = [
   "object-src 'none'",
 ].join('; ')
 
+const PERMISSIONS_POLICY = [
+  'camera=()',
+  'microphone=()',
+  'geolocation=()',
+  'payment=()',
+  'usb=()',
+  'serial=()',
+  'bluetooth=()',
+  'display-capture=()',
+].join(', ')
+
 function withSecurityHeaders(res: Response, secure: boolean): Response {
   const headers = new Headers(res.headers)
   headers.set('X-Content-Type-Options', 'nosniff')
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
   headers.set('X-Frame-Options', 'DENY')
-  headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()')
+  headers.set('Cross-Origin-Opener-Policy', 'same-origin')
+  headers.set('Cross-Origin-Resource-Policy', 'same-origin')
+  headers.set('X-Permitted-Cross-Domain-Policies', 'none')
+  headers.set('Permissions-Policy', PERMISSIONS_POLICY)
   headers.set('Content-Security-Policy', CSP)
-  if (secure) headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+  if (secure) headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload')
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers })
 }
 
@@ -116,6 +142,10 @@ app.use('/api/*', async (c, next) => {
   c.header('Referrer-Policy', 'strict-origin-when-cross-origin')
   c.header('X-Frame-Options', 'DENY')
   c.header('Content-Security-Policy', CSP)
+  c.header('Cross-Origin-Resource-Policy', 'same-origin')
+  c.header('X-Permitted-Cross-Domain-Policies', 'none')
+  // API payloads are personal data and must never be indexed or archived.
+  c.header('X-Robots-Tag', 'noindex, nofollow')
 })
 
 /* Reject oversized bodies before they are parsed. */
@@ -129,7 +159,8 @@ app.use('/api/*', async (c, next) => {
 
 const attempts = new Map<string, { count: number; resetAt: number }>()
 
-function throttled(key: string, limit = 12, windowMs = 10 * 60_000): boolean {
+/** Cheap in-isolate burst counter: stops floods without touching the database. */
+function burstLimited(key: string, limit: number, windowMs: number): boolean {
   const now = Date.now()
   if (attempts.size > 5000) attempts.clear()
   const entry = attempts.get(key)
@@ -139,6 +170,15 @@ function throttled(key: string, limit = 12, windowMs = 10 * 60_000): boolean {
   }
   entry.count += 1
   return entry.count > limit
+}
+
+/**
+ * Shared limiter: the in-memory bucket catches floods, the D1 counter keeps the
+ * limit meaningful across isolates. Either one tripping rejects the request.
+ */
+async function rateLimited(env: AppEnv['Bindings'], key: string, limit = 12, windowMs = 10 * 60_000): Promise<boolean> {
+  if (burstLimited(key, limit, windowMs)) return true
+  return hitRateLimit(env, key, limit, windowMs)
 }
 
 /* ------------------------------------- health ------------------------------------ */
@@ -159,7 +199,9 @@ function str(value: unknown): string {
 
 app.post('/api/auth/signup', async (c) => {
   const ip = c.req.header('cf-connecting-ip') ?? 'local'
-  if (throttled(`signup:${ip}`)) return c.json({ error: 'Too many attempts. Please try again in a few minutes.' }, 429)
+  if (await rateLimited(c.env, `signup:${ip}`)) {
+    return c.json({ error: 'Too many attempts. Please try again in a few minutes.' }, 429)
+  }
 
   const body = (await c.req.json().catch(() => ({}))) as SignupBody
   const name = str(body.name)
@@ -184,11 +226,18 @@ app.post('/api/auth/signup', async (c) => {
 
 app.post('/api/auth/login', async (c) => {
   const ip = c.req.header('cf-connecting-ip') ?? 'local'
-  if (throttled(`login:${ip}`)) return c.json({ error: 'Too many attempts. Please try again in a few minutes.' }, 429)
+  const throttleReply = { error: 'Too many attempts. Please try again in a few minutes.' }
+  if (await rateLimited(c.env, `login:${ip}`)) return c.json(throttleReply, 429)
 
   const body = (await c.req.json().catch(() => ({}))) as LoginBody
   const email = str(body.email).toLowerCase()
   const password = typeof body.password === 'string' ? body.password : ''
+
+  // A second bucket keyed by account slows a distributed guess at one address,
+  // which an IP-only limit would not catch.
+  if (email.length <= 254 && (await rateLimited(c.env, `login:acct:${email}`, 10, 15 * 60_000))) {
+    return c.json(throttleReply, 429)
+  }
 
   const row = EMAIL_PATTERN.test(email) ? await findUserByEmail(c.env, email) : null
   const valid = row ? await verifyPassword(password, row.password_hash) : false
@@ -243,11 +292,15 @@ app.delete('/api/auth/account', async (c) => {
   return c.json({ ok: true })
 })
 
-app.get('/api/auth/google/start', (c) => {
+app.get('/api/auth/google/start', async (c) => {
   if (!googleConfigured(c.env)) {
     return c.redirect('/login?error=google_unavailable')
   }
-  const state = crypto.randomUUID().replace(/-/g, '')
+  const ip = c.req.header('cf-connecting-ip') ?? 'local'
+  if (await rateLimited(c.env, `google:${ip}`, 20, 10 * 60_000)) {
+    return c.redirect('/login?error=google_unavailable')
+  }
+  const state = newToken()
   const secure = new URL(c.req.url).protocol === 'https:'
   setCookie(c, OAUTH_STATE_COOKIE, state, {
     httpOnly: true,
@@ -266,7 +319,7 @@ app.get('/api/auth/google/callback', async (c) => {
   deleteCookie(c, OAUTH_STATE_COOKIE, { path: '/api/auth/google' })
   deleteCookie(c, LEGACY_OAUTH_STATE_COOKIE, { path: '/api/auth/google' })
 
-  if (!googleConfigured(c.env) || !code || !state || !expected || state !== expected) {
+  if (!googleConfigured(c.env) || !code || !state || !expected || !timingSafeEqual(state, expected)) {
     return c.redirect('/login?error=google_failed')
   }
 
@@ -407,7 +460,7 @@ app.post('/api/chat', async (c) => {
   const user = c.get('user')
   if (!user) return c.json({ error: 'Please sign in first.' }, 401)
   const ip = c.req.header('cf-connecting-ip') ?? 'local'
-  if (throttled(`chat:${ip}`, 60, 5 * 60_000)) {
+  if (await rateLimited(c.env, `chat:${ip}`, 60, 5 * 60_000)) {
     return c.json({ error: 'You are sending messages quickly. Take a breath and try again in a minute.' }, 429)
   }
 
@@ -481,7 +534,7 @@ app.get('/api/guest/chat', async (c) => {
 
 app.post('/api/guest/chat', async (c) => {
   const ip = c.req.header('cf-connecting-ip') ?? 'local'
-  if (throttled(`guest:${ip}`, 30, 10 * 60_000)) {
+  if (await rateLimited(c.env, `guest:${ip}`, 30, 10 * 60_000)) {
     return c.json({ error: 'That is a lot of messages at once. Give it a minute and try again.' }, 429)
   }
 
@@ -541,7 +594,11 @@ app.all('/api/*', (c) => c.json({ error: 'That endpoint does not exist.' }, 404)
 /* ------------------------------ owner dashboard ------------------------------ */
 
 // Secret-link dashboard; handleAdmin answers 404 unless ADMIN_TOKEN matches.
-app.get('/admin', (c) => handleAdmin(c.env, c.req.query('token') ?? c.req.header('x-admin-token') ?? ''))
+app.get('/admin', async (c) => {
+  const ip = c.req.header('cf-connecting-ip') ?? 'local'
+  if (await rateLimited(c.env, `admin:${ip}`, 10, 10 * 60_000)) return c.text('Not found', 404)
+  return handleAdmin(c)
+})
 
 app.onError((error, c) => {
   console.error('Unhandled worker error:', error)

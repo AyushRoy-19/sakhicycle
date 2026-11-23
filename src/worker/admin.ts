@@ -1,16 +1,13 @@
-import type { Env } from './env'
+import type { Context } from 'hono'
+import { getCookie, setCookie } from 'hono/cookie'
+import type { AppEnv, Env } from './env'
 import { signupStats } from './db'
 import { escapeHtml } from './html'
+import { timingSafeEqual } from './auth'
 
-/** Constant-time compare so a wrong token reveals nothing through timing. */
-function tokenMatches(given: string, expected: string): boolean {
-  if (given.length !== expected.length) return false
-  let difference = 0
-  for (let index = 0; index < given.length; index += 1) {
-    difference |= given.charCodeAt(index) ^ expected.charCodeAt(index)
-  }
-  return difference === 0
-}
+/** Short-lived cookie so the token can be stripped out of the address bar. */
+const ADMIN_COOKIE = 'sakh_admin'
+const ADMIN_COOKIE_SECONDS = 60 * 60
 
 const PAGE_HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
@@ -153,9 +150,30 @@ async function renderPage(env: Env): Promise<string> {
 /**
  * Secret-link dashboard. Without ADMIN_TOKEN set, or with the wrong token, the
  * route is indistinguishable from a missing page.
+ *
+ * A valid token is exchanged for an HttpOnly cookie and the browser is sent to
+ * /admin without the query string, so the secret stops living in history,
+ * bookmarks and any proxy logs.
  */
-export async function handleAdmin(env: Env, given: string): Promise<Response> {
+export async function handleAdmin(c: Context<AppEnv>): Promise<Response> {
+  const env: Env = c.env
   const expected = env.ADMIN_TOKEN
-  if (!expected || !given || !tokenMatches(given, expected)) return notFound()
-  return new Response(await renderPage(env), { status: 200, headers: PAGE_HEADERS })
+  if (!expected) return notFound()
+
+  const cookie = getCookie(c, ADMIN_COOKIE)
+  if (cookie && timingSafeEqual(cookie, expected)) {
+    return new Response(await renderPage(env), { status: 200, headers: PAGE_HEADERS })
+  }
+
+  const given = c.req.query('token') ?? c.req.header('x-admin-token') ?? ''
+  if (!given || !timingSafeEqual(given, expected)) return notFound()
+
+  setCookie(c, ADMIN_COOKIE, expected, {
+    httpOnly: true,
+    sameSite: 'Strict',
+    path: '/admin',
+    secure: new URL(c.req.url).protocol === 'https:',
+    maxAge: ADMIN_COOKIE_SECONDS,
+  })
+  return c.redirect('/admin')
 }

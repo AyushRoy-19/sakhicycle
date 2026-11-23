@@ -43,6 +43,19 @@ export function newToken(): string {
   return toHex(crypto.getRandomValues(new Uint8Array(32)))
 }
 
+/**
+ * Constant-time string compare. A plain `===` returns early on the first wrong
+ * byte, which leaks how much of a token or OAuth state was guessed correctly.
+ */
+export function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  let difference = 0
+  for (let index = 0; index < a.length; index += 1) {
+    difference |= a.charCodeAt(index) ^ b.charCodeAt(index)
+  }
+  return difference === 0
+}
+
 async function derive(password: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits'])
   const bits = await crypto.subtle.deriveBits(
@@ -148,8 +161,10 @@ export async function endSession(c: Context<AppEnv>, env: Env): Promise<void> {
 /** Rejects cross-site writes. Same-origin browser requests always carry a matching Origin header. */
 export function isSameOrigin(c: Context<AppEnv>): boolean {
   const origin = c.req.header('origin')
-  if (!origin) return true
-  return origin === new URL(c.req.url).origin
+  if (origin && origin !== new URL(c.req.url).origin) return false
+  // Defence in depth for browsers that report the initiator: a cross-site
+  // navigation or fetch is refused even if the Origin header is absent.
+  return c.req.header('sec-fetch-site') !== 'cross-site'
 }
 
 /* ----------------------------------- Google OAuth ---------------------------------- */
