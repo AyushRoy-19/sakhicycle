@@ -1,0 +1,30 @@
+{
+  "name": "Sakhicycle — Period tracking, made kind",
+  "short_name": "Sakhicycle",
+  "description": "A private period tracker and learning space, with a gentle assistant that answers your questions about periods and puberty.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fff9f7",
+  "theme_color": "#b4234c",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

@@ -543,7 +543,18 @@ app.onError((error, c) => {
 
 app.get('*', async (c) => {
   const res = await c.env.ASSETS.fetch(c.req.raw)
-  return withSecurityHeaders(res, new URL(c.req.url).protocol === 'https:')
+  const url = new URL(c.req.url)
+  const headers = new Headers(res.headers)
+  // The manifest needs its registered type to be installable, and the service
+  // worker must be revalidated so a new release is picked up.
+  if (url.pathname === '/manifest.webmanifest') {
+    headers.set('Content-Type', 'application/manifest+json')
+  }
+  if (url.pathname === '/sw.js') {
+    headers.set('Cache-Control', 'no-cache')
+  }
+  const patched = new Response(res.body, { status: res.status, statusText: res.statusText, headers })
+  return withSecurityHeaders(patched, url.protocol === 'https:')
 })
 
 export default app
