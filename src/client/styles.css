@@ -22,6 +22,9 @@
   --accent-text: #92163d;
   --accent-soft: #fbe7ed;
   --accent-ink: #ffffff;
+  /* large brand-painted areas: panels and banners, not controls */
+  --brand-surface: #9c1c42;
+  --brand-ink: #ffffff;
 
   --line: #eaddde;
   --line-2: #d9c5c8;
@@ -86,6 +89,9 @@
   --accent-text: #ff9fb5;
   --accent-soft: #331d25;
   --accent-ink: #1b1114;
+  /* a full-height panel in the bright accent would glare, so it deepens instead */
+  --brand-surface: #4a1c29;
+  --brand-ink: #ffffff;
 
   --line: #2e2429;
   --line-2: #43353b;
@@ -968,8 +974,12 @@ select {
 .cta-band {
   max-width: 1072px;
   margin: 0 auto;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 96%, #fff), var(--accent));
-  color: #fff;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--brand-surface) 94%, #fff),
+    var(--brand-surface)
+  );
+  color: var(--brand-ink);
   border-radius: var(--r-xl);
   padding: 40px 44px;
   display: flex;
@@ -991,7 +1001,7 @@ select {
 
 .cta-band .btn-primary {
   background: #fff;
-  color: var(--accent-hover);
+  color: var(--brand-surface);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
   flex: none;
 }
@@ -1174,9 +1184,9 @@ textarea.input {
 
 .auth-right {
   background:
-    radial-gradient(700px 400px at 20% 0%, rgba(255, 255, 255, 0.14), transparent 70%),
-    var(--accent);
-  color: #fff;
+    radial-gradient(700px 400px at 20% 0%, rgba(255, 255, 255, 0.12), transparent 70%),
+    var(--brand-surface);
+  color: var(--brand-ink);
   padding: 44px 48px;
   display: flex;
   flex-direction: column;
@@ -1253,6 +1263,22 @@ textarea.input {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+/* Chat owns the viewport: the thread scrolls, the composer never leaves the screen. */
+.app-frame.is-fixed {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.app-frame.is-fixed .chat-wrap {
+  min-height: 0;
+}
+
+.app-frame.is-fixed .chat-scroll {
+  min-height: 0;
+  max-height: none;
 }
 
 .app-header {
@@ -1687,6 +1713,24 @@ textarea.input {
 
 .cal-cell.is-out {
   color: color-mix(in srgb, var(--ink-3) 55%, transparent);
+}
+
+/* A period that started last month is context, not this month's event. */
+.cal-cell.is-out.is-bleeding {
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  border-color: transparent;
+  color: var(--accent-text);
+  font-weight: 500;
+}
+
+.cal-cell.is-out.is-predicted {
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border-color: transparent;
+  color: color-mix(in srgb, var(--ink-3) 75%, transparent);
+}
+
+.cal-cell.is-out .cal-dot {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .cal-cell.is-today {
@@ -2313,10 +2357,19 @@ textarea.input {
     font-size: 0.79rem;
   }
 
-  .theme-toggle,
-  .nav .theme-toggle,
-  .app-user .theme-toggle {
+  /* The public header drops the toggles to keep room for the two account buttons;
+     the app header keeps them as icon buttons, where they are the only way to
+     change theme or stop motion on a phone. */
+  .nav .theme-toggle {
     display: none;
+  }
+
+  .app-user .avatar {
+    display: none;
+  }
+
+  .app-user .theme-toggle {
+    display: inline-flex;
   }
 
   .brand {
@@ -2327,6 +2380,14 @@ textarea.input {
 @media (max-width: 480px) {
   .feature-grid {
     grid-template-columns: 1fr;
+  }
+
+  .hero-actions {
+    gap: 8px;
+  }
+
+  .hero-actions .btn {
+    flex: 1 1 100%;
   }
 
   .hero-trust {

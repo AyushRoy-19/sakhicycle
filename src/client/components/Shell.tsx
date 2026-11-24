@@ -11,7 +11,7 @@ const TABS = [
   { to: '/app/guide', label: 'Chat' },
 ]
 
-export function Shell({ children }: { children: ReactNode }) {
+export function Shell({ children, fixed = false }: { children: ReactNode; fixed?: boolean }) {
   const { user, signOut } = useAuth()
   const path = usePath()
   const initial = (user?.name?.[0] ?? 'S').toUpperCase()
@@ -25,7 +25,7 @@ export function Shell({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <div className="app-frame">
+    <div className={fixed ? 'app-frame is-fixed' : 'app-frame'}>
       <header className={scrolled ? 'app-header is-scrolled' : 'app-header'}>
         <div className="app-nav">
           <Logo to="/app" />

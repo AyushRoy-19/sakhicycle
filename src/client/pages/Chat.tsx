@@ -287,7 +287,7 @@ export function Chat({ guest = false }: { guest?: boolean }) {
 
   if (guest) {
     return (
-      <div className="app-frame">
+      <div className="app-frame is-fixed">
         <SiteHeader />
         {thread}
         <footer className="app-footer">
@@ -297,5 +297,5 @@ export function Chat({ guest = false }: { guest?: boolean }) {
     )
   }
 
-  return <Shell>{thread}</Shell>
+  return <Shell fixed>{thread}</Shell>
 }
