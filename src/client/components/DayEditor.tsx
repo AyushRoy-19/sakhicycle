@@ -12,6 +12,16 @@ type Draft = {
   notes: string
 }
 
+const sameSet = (a: string[], b: string[]) =>
+  a.length === b.length && [...a].sort().join('|') === [...b].sort().join('|')
+
+const isDirty = (draft: Draft, saved: Draft) =>
+  draft.bleeding !== saved.bleeding ||
+  draft.flow !== saved.flow ||
+  draft.mood !== saved.mood ||
+  draft.notes.trim() !== saved.notes.trim() ||
+  !sameSet(draft.symptoms, saved.symptoms)
+
 const fromDay = (day: DayLog | undefined): Draft =>
   day
     ? {
@@ -43,9 +53,17 @@ export function DayEditor({ date, day, onSaved, onToday, action }: DayEditorProp
   }, [date, day])
 
   useEffect(() => {
+    if (!status) return
+    const id = window.setTimeout(() => setStatus(null), 3200)
+    return () => window.clearTimeout(id)
+  }, [status])
+
+  useEffect(() => {
     setStatus(null)
     setError(null)
   }, [date])
+
+  const dirty = isDirty(draft, fromDay(day))
 
   const toggleSymptom = (symptom: string) => {
     setDraft((current) => ({
@@ -198,14 +216,29 @@ export function DayEditor({ date, day, onSaved, onToday, action }: DayEditorProp
 
       <div className="form-actions">
         <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={saving}>
-          {saving ? 'Saving…' : 'Save this day'}
+          {saving ? 'Saving…' : dirty ? 'Save changes' : 'Save this day'}
         </button>
         {day && (
           <button type="button" className="btn btn-ghost" onClick={() => void clearDay()} disabled={saving}>
             Clear day
           </button>
         )}
-        {status && <span className="saved-note">{status}</span>}
+        {status && (
+          <span className="save-toast" key={status} role="status">
+            <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+              <path
+                d="M3.2 8.4l3 3 6.6-7"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            {status}
+          </span>
+        )}
+        {dirty && !saving && !status && <span className="card-sub">Unsaved changes</span>}
       </div>
     </section>
   )

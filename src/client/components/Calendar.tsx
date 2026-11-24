@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { buildMonth, monthLabel, parseIso, todayIso } from '../lib/dates'
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
+import { addDays, buildMonth, monthLabel, parseIso, todayIso } from '../lib/dates'
 
 const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 
@@ -33,6 +33,18 @@ export function Calendar({ bleedingDates, predictedDates, loggedDates, selected,
     setCursor({ year: date.getFullYear(), month: date.getMonth() })
   }
 
+  /* Arrow keys walk the month so the grid works without hunting for the mouse. */
+  const onGridKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const steps: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }
+    if (event.key in steps) {
+      event.preventDefault()
+      onSelect(addDays(selected || today, steps[event.key]))
+    } else if (event.key === 'Home') {
+      event.preventDefault()
+      onSelect(today)
+    }
+  }
+
   return (
     <div>
       <div className="cal-head">
@@ -57,7 +69,7 @@ export function Calendar({ bleedingDates, predictedDates, loggedDates, selected,
         ))}
       </div>
 
-      <div className="cal-grid">
+      <div className="cal-grid" onKeyDown={onGridKeyDown}>
         {cells.map((cell) => {
           const classes = ['cal-cell']
           if (!cell.inMonth) classes.push('is-out')

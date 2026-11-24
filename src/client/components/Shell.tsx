@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useAuth } from '../auth'
 import { Link, usePath } from '../router'
 import { Logo } from './Logo'
@@ -15,10 +15,18 @@ export function Shell({ children }: { children: ReactNode }) {
   const { user, signOut } = useAuth()
   const path = usePath()
   const initial = (user?.name?.[0] ?? 'S').toUpperCase()
+  const [scrolled, setScrolled] = useState(false)
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 4)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
   return (
     <div className="app-frame">
-      <header className="app-header">
+      <header className={scrolled ? 'app-header is-scrolled' : 'app-header'}>
         <div className="app-nav">
           <Logo to="/app" />
           <nav className="app-tabs" aria-label="Sections">

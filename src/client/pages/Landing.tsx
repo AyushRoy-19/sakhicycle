@@ -1,5 +1,8 @@
-import { addDays, formatLong, formatShort, parseIso, todayIso } from '../lib/dates'
+import { useState } from 'react'
+import type { Phase } from '../../shared/types'
+import { addDays, formatShort, parseIso, todayIso } from '../lib/dates'
 import { Link } from '../router'
+import { CycleRing } from '../components/CycleRing'
 import { Logo } from '../components/Logo'
 import { SiteHeader } from '../components/SiteHeader'
 
@@ -18,6 +21,21 @@ const FEATURES = [
   },
 ]
 
+const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
+
+const PHASE_NAME: Record<Phase, string> = {
+  menstrual: 'Menstrual',
+  follicular: 'Follicular',
+  ovulation: 'Ovulation',
+  luteal: 'Luteal',
+  unknown: 'Not enough data',
+}
+
+const phaseOf = (cycleDay: number): Phase =>
+  cycleDay <= 5 ? 'menstrual' : cycleDay <= 13 ? 'follicular' : cycleDay <= 16 ? 'ovulation' : 'luteal'
+
+const dayOfCycle = (cycleDay: number, offset: number) => (((cycleDay + offset - 1) % 28) + 28) % 28 + 1
+
 export function Landing() {
   const today = todayIso()
   const yearStart = `${today.slice(0, 4)}-01-01`
@@ -25,9 +43,24 @@ export function Landing() {
   const cycleDay = (dayOfYear % 28) + 1
   const daysUntil = 28 - cycleDay + 1
   const nextPeriod = addDays(today, daysUntil)
-  const phase = cycleDay <= 5 ? 'Menstrual' : cycleDay <= 13 ? 'Follicular' : cycleDay <= 15 ? 'Ovulation' : 'Luteal'
   const todayIndex = (parseIso(today).getDay() + 6) % 7
-  const ringDash = (cycleDay / 28) * 295
+
+  const [activeOffset, setActiveOffset] = useState(0)
+  const activeCycleDay = dayOfCycle(cycleDay, activeOffset)
+  const activePhase = phaseOf(activeCycleDay)
+  const activeDate = addDays(today, activeOffset)
+
+  const week = WEEKDAYS.map((letter, index) => {
+    const offset = index - todayIndex
+    const day = dayOfCycle(cycleDay, offset)
+    return {
+      letter,
+      offset,
+      day,
+      bleeding: day <= 5,
+      predicted: day >= 26,
+    }
+  })
 
   return (
     <div>
@@ -57,47 +90,66 @@ export function Landing() {
             </div>
           </div>
 
-          <div className="hero-art" aria-hidden="true">
-            <div className="mock">
-              <div className="mock-top">
-                <span>{formatLong(today)}</span>
-                <span className="tag">{phase}</span>
+          <div className="hero-panel">
+            <div className="panel-head">
+              <div className="panel-meta">
+                <span className="panel-label">Cycle overview</span>
+                <strong>
+                  {activeOffset === 0
+                    ? 'Today'
+                    : parseIso(activeDate).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
+                </strong>
               </div>
-              <div className="mock-body">
-                <div className="mock-ring">
-                  <svg width="118" height="118" viewBox="0 0 118 118">
-                    <circle cx="59" cy="59" r="47" fill="none" stroke="var(--ring-track)" strokeWidth="10" />
-                    <circle
-                      cx="59"
-                      cy="59"
-                      r="47"
-                      fill="none"
-                      stroke="var(--rose)"
-                      strokeWidth="10"
-                      strokeLinecap="round"
-                      strokeDasharray={`${ringDash} 295`}
-                      transform="rotate(-90 59 59)"
-                    />
-                  </svg>
-                  <div className="mock-ring-label">
-                    <strong>Day {cycleDay}</strong>
-                    <span>of 28</span>
-                  </div>
+              <span className="pill-phase" data-phase={activePhase}>
+                {PHASE_NAME[activePhase]}
+              </span>
+            </div>
+
+            <div className="panel-main">
+              <CycleRing cycleDay={activeCycleDay} cycleLength={28} phase={activePhase} size={148} />
+              <div className="panel-stats">
+                <div>
+                  <span>Next period</span>
+                  <strong>{daysUntil === 1 ? 'Tomorrow' : `in ${daysUntil} days`}</strong>
                 </div>
-                <div className="mock-copy">
-                  <p className="mock-eyebrow">Next period</p>
-                  <p className="mock-big">{daysUntil === 1 ? 'Tomorrow' : `In ${daysUntil} days`}</p>
-                  <p className="mock-small">Around {formatShort(nextPeriod)}</p>
+                <div>
+                  <span>Expected</span>
+                  <strong>{formatShort(nextPeriod)}</strong>
                 </div>
-              </div>
-              <div className="mock-days">
-                {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((letter, index) => (
-                  <span key={index} className={index === todayIndex ? 'mock-day is-on' : 'mock-day'}>
-                    {letter}
-                  </span>
-                ))}
+                <div>
+                  <span>Cycle day</span>
+                  <strong>
+                    {activeCycleDay} of 28
+                  </strong>
+                </div>
               </div>
             </div>
+
+            <div className="panel-week" role="group" aria-label="Try a week of the tracker">
+              {week.map((entry) => {
+                const classes = ['panel-day']
+                if (entry.bleeding) classes.push('is-bleeding')
+                else if (entry.predicted) classes.push('is-predicted')
+                return (
+                  <button
+                    key={`${entry.letter}-${entry.offset}`}
+                    type="button"
+                    className={classes.join(' ')}
+                    aria-pressed={entry.offset === activeOffset}
+                    aria-label={`Day ${entry.day} of the cycle`}
+                    onClick={() => setActiveOffset(entry.offset)}
+                  >
+                    {entry.letter}
+                    <em>{entry.day}</em>
+                  </button>
+                )
+              })}
+            </div>
+            <p className="panel-note">
+              {activeOffset === 0
+                ? 'Tap any day above to move through the cycle.'
+                : `${formatShort(activeDate)} · day ${activeCycleDay} · ${PHASE_NAME[activePhase].toLowerCase()}`}
+            </p>
           </div>
         </section>
 
@@ -107,8 +159,9 @@ export function Landing() {
             <h2>Everything you need. Nothing you don&apos;t.</h2>
           </div>
           <div className="feature-grid">
-            {FEATURES.map((feature) => (
+            {FEATURES.map((feature, index) => (
               <article key={feature.title} className="feature">
+                <span className="feature-num">{String(index + 1).padStart(2, '0')}</span>
                 <h3>{feature.title}</h3>
                 <p>{feature.body}</p>
               </article>

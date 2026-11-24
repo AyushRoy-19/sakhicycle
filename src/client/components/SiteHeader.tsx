@@ -1,15 +1,21 @@
-import { Link } from '../router'
+import { Link, usePath } from '../router'
 import { MotionToggle, ThemeToggle } from '../theme'
 import { Logo } from './Logo'
 
 export function SiteHeader() {
+  const path = usePath()
+
   return (
     <header className="site-header">
       <div className="nav">
         <Logo />
         <nav className="nav-links" aria-label="Main">
-          <Link to="/chat">Free chat</Link>
-          <Link to="/signup">Tracker</Link>
+          <Link to="/chat" aria-current={path === '/chat' ? 'page' : undefined}>
+            Free chat
+          </Link>
+          <Link to="/signup" aria-current={path === '/signup' ? 'page' : undefined}>
+            Tracker
+          </Link>
           <Link to="/signup">Learn</Link>
         </nav>
         <div className="nav-actions">
