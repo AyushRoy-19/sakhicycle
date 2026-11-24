@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
-import type { AppEnv } from './env'
+import { passwordAuthEnabled, type AppEnv } from './env'
 import {
   adoptGuestChats,
   attachGoogleSub,
@@ -186,7 +186,9 @@ async function rateLimited(env: AppEnv['Bindings'], key: string, limit = 12, win
 app.get('/api/health', (c) => c.json({ ok: true, service: 'sakhicycle', time: new Date().toISOString() }))
 
 
-app.get('/api/auth/config', (c) => c.json({ googleEnabled: googleConfigured(c.env) }))
+app.get('/api/auth/config', (c) =>
+  c.json({ googleEnabled: googleConfigured(c.env), passwordEnabled: passwordAuthEnabled(c.env) }),
+)
 
 /* -------------------------------------- auth -------------------------------------- */
 
@@ -197,7 +199,11 @@ function str(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+const PASSWORD_OFF = { error: 'Password sign-in is turned off for this site. Please continue with Google.' }
+
 app.post('/api/auth/signup', async (c) => {
+  if (!passwordAuthEnabled(c.env)) return c.json(PASSWORD_OFF, 403)
+
   const ip = c.req.header('cf-connecting-ip') ?? 'local'
   if (await rateLimited(c.env, `signup:${ip}`)) {
     return c.json({ error: 'Too many attempts. Please try again in a few minutes.' }, 429)
@@ -225,6 +231,8 @@ app.post('/api/auth/signup', async (c) => {
 })
 
 app.post('/api/auth/login', async (c) => {
+  if (!passwordAuthEnabled(c.env)) return c.json(PASSWORD_OFF, 403)
+
   const ip = c.req.header('cf-connecting-ip') ?? 'local'
   const throttleReply = { error: 'Too many attempts. Please try again in a few minutes.' }
   if (await rateLimited(c.env, `login:${ip}`)) return c.json(throttleReply, 429)

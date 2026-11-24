@@ -13,10 +13,13 @@
     {
       "binding": "DB",
       "database_name": "sakhicycle-db",
-      "database_id": "4c1d2a6e-7b18-4f92-9f3a-2d5e8b0c7a41"
+      "database_id": "26117117-6bfe-4937-8bac-4a05d2f063e9"
     }
   ],
   "vars": {
-    "APP_NAME": "Sakhicycle"
+    "APP_NAME": "Sakhicycle",
+    // Google sign-in only: the free Workers plan allows 10 ms of CPU per request,
+    // and password hashing does not fit inside that budget.
+    "PASSWORD_AUTH": "off"
   }
 }

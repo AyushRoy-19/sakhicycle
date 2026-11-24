@@ -66,6 +66,7 @@ export type ChatMessage = {
 
 export type AuthConfig = {
   googleEnabled: boolean
+  passwordEnabled: boolean
 }
 
 export type ApiError = {

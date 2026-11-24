@@ -7,8 +7,8 @@ import { Logo } from '../components/Logo'
 import { MotionToggle, ThemeToggle } from '../theme'
 
 const ERROR_COPY: Record<string, string> = {
-  google_unavailable: 'Google sign-in is not switched on for this site yet. Please use your email below.',
-  google_failed: 'Google sign-in did not complete. Please try again or use your email.',
+  google_unavailable: 'Google sign-in is not switched on for this site yet.',
+  google_failed: 'Google sign-in did not complete. Please try again.',
 }
 
 export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
@@ -19,6 +19,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [googleEnabled, setGoogleEnabled] = useState<boolean | null>(null)
+  const [passwordEnabled, setPasswordEnabled] = useState(true)
 
   const isSignup = mode === 'signup'
 
@@ -32,10 +33,13 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
     let active = true
     api<AuthConfig>('/api/auth/config')
       .then((config) => {
-        if (active) setGoogleEnabled(config.googleEnabled)
+        if (!active) return
+        setGoogleEnabled(config.googleEnabled)
+        setPasswordEnabled(config.passwordEnabled)
       })
       .catch(() => {
-        if (active) setGoogleEnabled(false)
+        if (!active) return
+        setGoogleEnabled(false)
       })
     return () => {
       active = false
@@ -80,69 +84,71 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
               : 'Your tracker, your history and your guide, right where you left them.'}
           </p>
 
-          <form onSubmit={submit} noValidate>
-            {isSignup && (
+          {passwordEnabled && (
+            <form onSubmit={submit} noValidate>
+              {isSignup && (
+                <div className="field">
+                  <label className="label" htmlFor="name">
+                    Your first name
+                  </label>
+                  <input
+                    id="name"
+                    className="input"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    autoComplete="given-name"
+                    placeholder="Amara"
+                    required
+                  />
+                </div>
+              )}
+
               <div className="field">
-                <label className="label" htmlFor="name">
-                  Your first name
+                <label className="label" htmlFor="email">
+                  Email
                 </label>
                 <input
-                  id="name"
+                  id="email"
                   className="input"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  autoComplete="given-name"
-                  placeholder="Amara"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  autoComplete="email"
+                  placeholder="you@example.com"
                   required
                 />
               </div>
-            )}
 
-            <div className="field">
-              <label className="label" htmlFor="email">
-                Email
-              </label>
-              <input
-                id="email"
-                className="input"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                autoComplete="email"
-                placeholder="you@example.com"
-                required
-              />
-            </div>
+              <div className="field">
+                <label className="label" htmlFor="password">
+                  Password
+                </label>
+                <input
+                  id="password"
+                  className="input"
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete={isSignup ? 'new-password' : 'current-password'}
+                  placeholder={isSignup ? 'At least 8 characters' : 'Your password'}
+                  minLength={8}
+                  required
+                />
+              </div>
 
-            <div className="field">
-              <label className="label" htmlFor="password">
-                Password
-              </label>
-              <input
-                id="password"
-                className="input"
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete={isSignup ? 'new-password' : 'current-password'}
-                placeholder={isSignup ? 'At least 8 characters' : 'Your password'}
-                minLength={8}
-                required
-              />
-            </div>
+              <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
+                {busy ? 'One moment…' : isSignup ? 'Create my account' : 'Sign in'}
+              </button>
+            </form>
+          )}
 
-            {error && (
-              <p className="form-error" role="alert">
-                {error}
-              </p>
-            )}
+          {passwordEnabled && <div className="divider">or</div>}
 
-            <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
-              {busy ? 'One moment…' : isSignup ? 'Create my account' : 'Sign in'}
-            </button>
-          </form>
-
-          <div className="divider">or</div>
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          )}
 
           {googleEnabled ? (
             <a className="btn btn-google btn-block" href="/api/auth/google/start">
@@ -156,15 +162,24 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
             </button>
           )}
           {googleEnabled === false && (
-            <p className="hint">Google sign-in is not switched on for this site yet. Your email works right now.</p>
+            <p className="hint">
+              {passwordEnabled
+                ? 'Google sign-in is not switched on for this site yet. Your email works right now.'
+                : 'Sign-in is not available right now. Please check back in a moment.'}
+            </p>
+          )}
+          {!passwordEnabled && googleEnabled && (
+            <p className="hint">No password to remember — your Google account is all you need.</p>
           )}
 
-          <p className="auth-switch">
-            {isSignup ? 'Already have an account? ' : 'New to Sakhicycle? '}
-            <Link to={isSignup ? '/login' : '/signup'} className="text-link">
-              {isSignup ? 'Sign in' : 'Create one'}
-            </Link>
-          </p>
+          {passwordEnabled && (
+            <p className="auth-switch">
+              {isSignup ? 'Already have an account? ' : 'New to Sakhicycle? '}
+              <Link to={isSignup ? '/login' : '/signup'} className="text-link">
+                {isSignup ? 'Sign in' : 'Create one'}
+              </Link>
+            </p>
+          )}
         </div>
       </div>
 
