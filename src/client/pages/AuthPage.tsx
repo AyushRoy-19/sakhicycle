@@ -172,6 +172,11 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
             <p className="hint">No password to remember — your Google account is all you need.</p>
           )}
 
+          <p className="auth-legal">
+            By continuing you agree to our <Link to="/terms">Terms</Link> and{' '}
+            <Link to="/privacy">Privacy Policy</Link>.
+          </p>
+
           {passwordEnabled && (
             <p className="auth-switch">
               {isSignup ? 'Already have an account? ' : 'New to Sakhicycle? '}

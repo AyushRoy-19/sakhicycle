@@ -233,6 +233,8 @@ export function Landing() {
             <Link to="/chat">Free chat</Link>
             <Link to="/login">Sign in</Link>
             <Link to="/signup">Create account</Link>
+            <Link to="/privacy">Privacy</Link>
+            <Link to="/terms">Terms</Link>
           </div>
         </div>
       </footer>

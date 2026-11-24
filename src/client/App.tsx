@@ -8,6 +8,7 @@ import { Dashboard } from './pages/Dashboard'
 import { CalendarPage } from './pages/CalendarPage'
 import { Learn } from './pages/Learn'
 import { Chat } from './pages/Chat'
+import { Privacy, Terms } from './pages/Legal'
 
 function Boot() {
   return (
@@ -41,6 +42,9 @@ function Routes() {
   if (path === '/app/calendar') return user ? <CalendarPage /> : <Redirect to="/login" />
   if (path === '/app/learn') return user ? <Learn /> : <Redirect to="/login" />
   if (path === '/app/guide') return user ? <Chat /> : <Redirect to="/login" />
+
+  if (path === '/privacy') return <Privacy />
+  if (path === '/terms') return <Terms />
 
   if (path === '/' || path === '') return <Landing />
 
